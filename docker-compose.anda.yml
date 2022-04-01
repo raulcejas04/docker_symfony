@@ -1,0 +1,59 @@
+#https://www.bornfight.com/blog/blog-lamp-docker-setup-with-php-8-and-mariadb-for-symfony-projects/
+version: '3.9'
+
+networks:
+  symfony_project_2021_net:
+
+services:
+  intra:
+    build:
+      context: .
+      dockerfile: ./docker/intra/Dockerfile
+    container_name: '${APP_NAME}-intra'
+    ports:
+      - '${APP_PORT_INTRA}:80'
+    working_dir: /var/www/html
+#    environment:
+#      - 'DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASS}@db_server:3306/${MYSQL_DB}?serverVersion=10.5'
+    volumes:
+      - /pendrive/profesional/sedronar/symfony/autogestion/sedroIntra:/var/www/html/intra
+      - ./docker/intra/apache/sites-enabled:/etc/apache2/sites-enabled
+      - ./docker/intra/php/php.ini:/usr/local/etc/php/conf.d/extra-php-config.ini
+    depends_on:
+      - db_server
+    networks:
+      - symfony_project_2021_net
+
+  extra:
+    build:
+      context: .
+      dockerfile: ./docker/extra/Dockerfile
+    container_name: '${APP_NAME}-extra'
+    ports:
+      - '${APP_PORT_EXTRA}:80'
+    working_dir: /var/www/html
+#    environment:
+#      - 'DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASS}@db_server:3306/${MYSQL_DB}?serverVersion=10.5'
+    volumes:
+      - /pendrive/profesional/sedronar/symfony/autogestion/sedroExtra2:/var/www/html/extra
+      - ./docker/extra/apache/sites-enabled:/etc/apache2/sites-enabled
+      - ./docker/extra/php/php.ini:/usr/local/etc/php/conf.d/extra-php-config.ini
+    depends_on:
+      - db_server
+    networks:
+      - symfony_project_2021_net
+
+  db_server:
+    image: 'postgres:latest'
+    container_name: postgresql_docker_symfony5
+    restart: always
+    volumes:
+      - /pendrive/profesional/dockervolumes/postgre_symfony5:/var/lib/postgresql/data'
+    environment:
+      - POSTGRES_PASSWORD=qaz123
+    ports:
+      - '5432:5432'
+    networks:
+      - symfony_project_2021_net
+
+

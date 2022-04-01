@@ -1,0 +1,177 @@
+#https://www.bornfight.com/blog/blog-lamp-docker-setup-with-php-8-and-mariadb-for-symfony-projects/
+version: '3.9'
+
+networks:
+  symfony_project_2021_net:
+  kong-net:
+  keycloak-net:
+
+volumes:
+  kong-datastore:
+  keycloak-datastore:
+
+
+services:
+  intra:
+    build:
+      context: .
+      dockerfile: ./docker/intra/Dockerfile
+    container_name: '${APP_NAME}-intra'
+    ports:
+      - '8101:80'
+      - '8105:8000'
+      - 2525:2525
+    working_dir: /var/www/html
+    environment:
+      TZ: "America/Argentina/Buenos_Aires"
+#      - 'DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASS}@db_server:3306/${MYSQL_DB}?serverVersion=10.5'
+    volumes:
+      - /pendrive/profesional/sedronar/symfony/autogestion/sedroIntra:/var/www/html/intra
+      - ./docker/intra/apache/sites-enabled:/etc/apache2/sites-enabled
+      - ./docker/intra/php/php.ini:/usr/local/etc/php/conf.d/extra-php-config.ini
+    depends_on:
+      - db_server
+    networks:
+      - symfony_project_2021_net
+      - keycloak-net
+
+  extra:
+    build:
+      context: .
+      dockerfile: ./docker/extra/Dockerfile
+    container_name: '${APP_NAME}-extra'
+    ports:
+      - '8102:80'
+      - '8106:8000'
+    working_dir: /var/www/html
+    environment:
+      TZ: "America/Argentina/Buenos_Aires"
+#      - 'DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASS}@db_server:3306/${MYSQL_DB}?serverVersion=10.5'
+    volumes:
+      - /pendrive/profesional/sedronar/symfony/autogestion/sedroExtra2:/var/www/html/extra
+      - ./docker/extra/apache/sites-enabled:/etc/apache2/sites-enabled
+      - ./docker/extra/php/php.ini:/usr/local/etc/php/conf.d/extra-php-config.ini
+    depends_on:
+      - db_server
+    networks:
+      - symfony_project_2021_net
+      - keycloak-net
+      
+  db_server:
+    image: 'postgres:latest'
+    container_name: postgresql_docker_symfony5
+    restart: always
+    volumes:
+      - /pendrive/profesional/dockervolumes/postgre_symfony5:/var/lib/postgresql/data
+      - /etc/localtime:/etc/localtime:ro
+    #https://stackoverflow.com/questions/56188573/permission-issue-with-postgresql-in-docker-container en lugar de 1000 va 999
+    user: 999:999
+    environment:
+      - POSTGRES_PASSWORD=qaz123
+    ports:
+      - '5432:5432'
+    networks:
+      - symfony_project_2021_net
+      
+  kong-db:
+    image: postgres:11-alpine
+    volumes:
+      - /pendrive/profesional/dockervolumes/kong-datastore:/var/lib/postgresql/data
+      - /pendrive/profesional/sedronar/symfony/autogestion/importacionpostgre:/opt/importacionpostgre
+    networks:
+      - kong-net
+    ports:
+      - "15432:5432"
+    environment:
+      TZ: "America/Argentina/Buenos_Aires"
+      POSTGRES_DB:       api-gw
+      POSTGRES_USER:     kong
+      POSTGRES_PASSWORD: kong
+
+  kong:
+    build:
+      context: ./      
+    image: kong-oidc:latest
+    depends_on:
+      - kong-db
+    networks:
+      - kong-net
+    ports:
+      - "8000:8000" # Listener
+      - "8001:8001" # Admin API
+      - "8443:8443" # Listener  (SSL)
+      - "8444:8444" # Admin API (SSL)
+    environment:
+      TZ: "America/Argentina/Buenos_Aires"
+      KONG_DATABASE:         postgres
+      KONG_PG_HOST:          kong-db
+      KONG_PG_PORT:          5432
+      KONG_PG_DATABASE:      api-gw
+      KONG_PG_USER:          kong
+      KONG_PG_PASSWORD:      kong
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG:  /dev/stderr
+      KONG_ADMIN_ERROR_LOG:  /dev/stderr
+      KONG_PROXY_LISTEN:     0.0.0.0:8000, 0.0.0.0:8443 ssl
+      KONG_ADMIN_LISTEN:     0.0.0.0:8001, 0.0.0.0:8444 ssl
+      KONG_PLUGINS:          bundled,oidc
+      KONG_LOG_LEVEL:        debug
+
+  konga:
+    image: pantsel/konga:0.14.7
+    depends_on:
+      - kong
+    networks:
+      - kong-net
+    ports:
+      - "1337:1337" # konga
+    environment:
+      TZ: "America/Argentina/Buenos_Aires"
+      DB_ADAPTER: postgres
+      DB_HOST: kong-db
+      DB_PORT: '5432'
+      DB_USER: kong
+      DB_PASSWORD: kong
+      DB_DATABASE: api-gw
+      NODE_ENV: development
+
+  keycloak-db:
+    image: postgres:11-alpine
+    volumes: 
+      - /pendrive/profesional/dockervolumes/keycloak-datastore:/var/lib/postgresql/data
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - keycloak-net
+    ports:
+      - "25432:5432"
+    environment:
+      POSTGRES_DB:       keycloak
+      POSTGRES_USER:     keycloak
+      POSTGRES_PASSWORD: password
+
+  keycloak:
+    image: jboss/keycloak:10.0.2
+    depends_on:
+      - keycloak-db
+    networks:
+      - keycloak-net
+    ports:
+      - "8180:8080"
+    environment:
+      DB_VENDOR:   POSTGRES
+      DB_ADDR:     keycloak-db
+      DB_PORT:     5432
+      DB_DATABASE: keycloak
+      DB_USER:     keycloak
+      DB_PASSWORD: password
+      KEYCLOAK_USER:     admin
+      KEYCLOAK_PASSWORD: admin
+    command:
+      - "-b 0.0.0.0"
+      #- "-Dkeycloak.import=/opt/jboss/keycloak/realm-exports/realm-export.json,/opt/jboss/keycloak/realm-exports/backapp-realm.json"
+      - "-Dkeycloak.profile.feature.account_api=enabled"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+
+
